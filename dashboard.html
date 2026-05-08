@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>中文社媒热点雷达</title>
+  <style>
+    :root {
+      --bg: #f7f7f4;
+      --text: #202124;
+      --muted: #64676d;
+      --line: #d9dbd2;
+      --panel: #ffffff;
+      --accent: #0f766e;
+      --accent-soft: #d9f2ed;
+      --warn: #b45309;
+      --danger: #b91c1c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    header {
+      padding: 22px 28px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    h1 { margin: 0 0 14px; font-size: 24px; letter-spacing: 0; }
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 160px 160px 160px;
+      gap: 10px;
+      align-items: center;
+    }
+    input, select, button {
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      padding: 0 11px;
+      font-size: 14px;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      cursor: pointer;
+      font-weight: 600;
+    }
+    main { padding: 22px 28px 40px; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 300px;
+    }
+    .topline {
+      display: flex;
+      gap: 10px;
+      align-items: start;
+      justify-content: space-between;
+    }
+    .keyword {
+      font-size: 18px;
+      font-weight: 750;
+      line-height: 1.35;
+    }
+    .score {
+      min-width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: #075a53;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+    }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      border-radius: 999px;
+      background: #f0f1ec;
+      color: #3c4043;
+      padding: 4px 8px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .level { background: var(--accent-soft); color: #075a53; }
+    .risk-mid { background: #fff4db; color: var(--warn); }
+    .risk-high { background: #ffe2e2; color: var(--danger); }
+    .section-title {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 700;
+      margin-bottom: 5px;
+    }
+    ul { margin: 0; padding-left: 18px; }
+    li { margin: 4px 0; line-height: 1.45; }
+    a { color: var(--accent); text-decoration: none; }
+    .empty {
+      padding: 30px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+    }
+    @media (max-width: 760px) {
+      header, main { padding-left: 16px; padding-right: 16px; }
+      .toolbar { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>中文社媒热点雷达</h1>
+    <div class="toolbar">
+      <input id="q" placeholder="搜索热点、平台、标签" />
+      <select id="level">
+        <option value="">全部推荐等级</option>
+        <option>强烈跟进</option>
+        <option>观察</option>
+        <option>暂不跟进</option>
+      </select>
+      <select id="risk">
+        <option value="">全部风险</option>
+        <option>低</option>
+        <option>中</option>
+        <option>高</option>
+      </select>
+      <button id="refresh">刷新数据</button>
+    </div>
+  </header>
+  <main>
+    <div class="meta" id="meta"></div>
+    <div class="grid" id="grid"></div>
+  </main>
+  <script>
+    let payload = null;
+    const grid = document.getElementById("grid");
+    const meta = document.getElementById("meta");
+    const q = document.getElementById("q");
+    const level = document.getElementById("level");
+    const risk = document.getElementById("risk");
+
+    async function loadData() {
+      const res = await fetch("./output/hotspots.json?ts=" + Date.now());
+      payload = await res.json();
+      render();
+    }
+
+    function render() {
+      const query = q.value.trim().toLowerCase();
+      const rows = (payload?.clusters || []).filter(item => {
+        const blob = JSON.stringify(item).toLowerCase();
+        return (!query || blob.includes(query))
+          && (!level.value || item.suggestion_level === level.value)
+          && (!risk.value || item.risk_level === risk.value);
+      });
+      meta.innerHTML = `
+        <span>生成时间：${payload.generated_at}</span>
+        <span>原始热点：${payload.raw_count}</span>
+        <span>合并热点：${payload.cluster_count}</span>
+        <span>AI增强：${payload.ai_count || 0}${payload.ai_model ? " · " + payload.ai_model : ""}</span>
+        <span>采集提示：${payload.errors.length}</span>
+      `;
+      grid.innerHTML = rows.length ? rows.map(card).join("") : `<div class="empty">没有匹配结果。先运行 <code>python hotspot_radar.py</code> 生成数据。</div>`;
+    }
+
+    function card(item) {
+      const riskClass = item.risk_level === "高" ? "risk-high" : item.risk_level === "中" ? "risk-mid" : "";
+      const sourceLinks = item.source_items.slice(0, 4).map(src => {
+        const label = `${src.platform} #${src.rank}`;
+        return src.url ? `<a href="${src.url}" target="_blank" rel="noreferrer">${label}</a>` : label;
+      }).join(" · ");
+      return `
+        <article class="card">
+          <div class="topline">
+            <div class="keyword">${escapeHtml(item.keyword)}</div>
+            <div class="score">${Math.round(item.score)}</div>
+          </div>
+          <div class="chips">
+            <span class="chip level">${item.suggestion_level}</span>
+            ${item.ai_powered ? `<span class="chip level">AI</span>` : ""}
+            <span class="chip ${riskClass}">风险 ${item.risk_level}</span>
+            ${item.platforms.map(p => `<span class="chip">${p}</span>`).join("")}
+          </div>
+          ${item.ai_brief ? `<div><div class="section-title">AI判断</div><div>${escapeHtml(item.ai_brief)}</div></div>` : ""}
+          <div>
+            <div class="section-title">来源</div>
+            <div>${sourceLinks}</div>
+          </div>
+          <div>
+            <div class="section-title">选题角度</div>
+            <ul>${item.topic_angles.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
+          </div>
+          <div>
+            <div class="section-title">标题模板</div>
+            <ul>${item.title_templates.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
+          </div>
+          <div class="chips">${item.tags.map(t => `<span class="chip">${escapeHtml(t)}</span>`).join("")}</div>
+        </article>
+      `;
+    }
+
+    function escapeHtml(text) {
+      return String(text).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
+    }
+
+    q.addEventListener("input", render);
+    level.addEventListener("change", render);
+    risk.addEventListener("change", render);
+    document.getElementById("refresh").addEventListener("click", loadData);
+    loadData().catch(() => {
+      meta.innerHTML = "";
+      grid.innerHTML = `<div class="empty">还没有数据。请先在 GitHub Actions 里运行 <code>Deploy hotspot radar</code> 工作流。</div>`;
+    });
+  </script>
+</body>
+</html>
