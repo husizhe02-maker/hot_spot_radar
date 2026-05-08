@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: hot-spot-radar
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: AI_LIMIT
+        value: "3"
+      - key: OPENAI_MODEL
+        value: gpt-5-nano
