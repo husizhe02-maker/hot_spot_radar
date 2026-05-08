@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.env
+data/hotspots.db
+hotspot-radar-github-pages.zip
