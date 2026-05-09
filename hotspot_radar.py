@@ -21,7 +21,6 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "output"
 JSON_PATH = OUTPUT_DIR / "hotspots.json"
-REPORT_PATH = OUTPUT_DIR / "daily_report.md"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
@@ -68,10 +67,6 @@ class Cluster:
     tags: list[str]
     source_items: list[dict]
     ai_powered: bool = False
-    ai_fit_score: int = 0
-    ai_screen_reason: str = ""
-    ai_reason: str = ""
-    ai_brief: str = ""
     ai_web_summary: str = ""
     ai_enriched: bool = False
     ai_web_sources: list[dict] | None = None
@@ -441,13 +436,11 @@ def enhance_cluster_dict(cluster: dict, model: str) -> None:
         "properties": {
             "suggestion_level": {"type": "string", "enum": ["强烈跟进", "观察", "暂不跟进"]},
             "risk_level": {"type": "string", "enum": ["低", "中", "高"]},
-            "ai_brief": {"type": "string"},
-            "ai_reason": {"type": "string"},
             "topic_angles": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3},
             "title_templates": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3},
             "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 6},
         },
-        "required": ["suggestion_level", "risk_level", "ai_brief", "ai_reason", "topic_angles", "title_templates", "tags"],
+        "required": ["suggestion_level", "risk_level", "topic_angles", "title_templates", "tags"],
         "additionalProperties": False,
     }
     body = {
@@ -461,8 +454,6 @@ def enhance_cluster_dict(cluster: dict, model: str) -> None:
     result, _ = call_openai_json(body)
     cluster["ai_powered"] = True
     cluster["ai_enriched"] = True
-    cluster["ai_brief"] = clean_text(result.get("ai_brief"))[:180]
-    cluster["ai_reason"] = clean_text(result.get("ai_reason"))[:180]
     cluster["suggestion_level"] = result.get("suggestion_level", cluster.get("suggestion_level"))
     cluster["risk_level"] = result.get("risk_level", cluster.get("risk_level"))
     for field in ("topic_angles", "title_templates", "tags"):
@@ -543,20 +534,12 @@ def write_outputs(items: list[HotItem], clusters: list[Cluster], errors: list[st
         "clusters": [asdict(cluster) for cluster in clusters],
     }
     JSON_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    lines = ["# 中文社媒热点简报", "", f"生成时间：{payload['generated_at']}", f"采集原始热点：{len(items)} 条，合并后热点：{len(clusters)} 个", "", "## 今日优先跟进"]
-    for idx, cluster in enumerate(clusters[:20], 1):
-        lines += ["", f"### {idx}. {cluster.keyword}", f"- 推荐等级：{cluster.suggestion_level}；综合分：{cluster.score}；风险：{cluster.risk_level}", f"- 来源平台：{', '.join(cluster.platforms)}；最佳排名：#{cluster.best_rank}"]
-    if errors:
-        lines += ["", "## 采集提示"] + [f"- {err}" for err in errors]
-    REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> int:
     load_local_env()
     parser = argparse.ArgumentParser(description="Chinese social hotspot radar")
     parser.add_argument("--offline", action="store_true")
-    parser.add_argument("--ai", action="store_true")
-    parser.add_argument("--ai-limit", type=int, default=10)
     parser.add_argument("--ai-model", default=os.environ.get("OPENAI_MODEL", "gpt-5-mini"))
     parser.add_argument("--ai-web-model", default=os.environ.get("OPENAI_WEB_MODEL", "gpt-5.5"))
     parser.add_argument("--enhance-index", type=int)
@@ -572,21 +555,10 @@ def main() -> int:
         return 0
     items, errors = collect_all(offline=args.offline)
     clusters = cluster_items(items)
-    if args.ai:
-        for idx, cluster in enumerate(clusters[: args.ai_limit]):
-            cluster_dict = asdict(cluster)
-            try:
-                enhance_cluster_dict(cluster_dict, args.ai_model)
-                for field, value in cluster_dict.items():
-                    if hasattr(cluster, field):
-                        setattr(cluster, field, value)
-            except Exception as exc:
-                errors.append(f"AI {cluster.keyword[:24]}: {type(exc).__name__}: {exc}")
-    write_outputs(items, clusters, errors, ai_model=args.ai_model if args.ai else None)
+    write_outputs(items, clusters, errors)
     print(f"raw items: {len(items)}")
     print(f"clusters: {len(clusters)}")
     print(f"json: {JSON_PATH}")
-    print(f"report: {REPORT_PATH}")
     if errors:
         print("collector notes:")
         for err in errors:
