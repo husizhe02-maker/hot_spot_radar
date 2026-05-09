@@ -174,7 +174,7 @@
 
     async function refreshHotspots() {
       if (window.location.protocol === "file:") {
-        alert("当前是 file:// 本地文件页面，不能真正调用后端刷新。请打开 Render 链接或本地后端链接后再刷新。");
+        alert("当前是 file:// 本地文件页面，不能真正调用后端刷新。请用 start_hotspot_radar.bat 打开 http://127.0.0.1:8031/dashboard.html 后再刷新。");
         return;
       }
       const button = document.getElementById("refresh");
@@ -199,7 +199,7 @@
 
     async function runCardAction(index, action, button) {
       if (window.location.protocol === "file:") {
-        alert("当前是 file:// 本地文件页面，不能调用后端。请打开 Render 链接或本地后端链接。");
+        alert("当前是 file:// 本地文件页面，不能调用后端。请用 start_hotspot_radar.bat 打开 http://127.0.0.1:8031/dashboard.html。");
         return;
       }
       const oldText = button.textContent;
@@ -239,7 +239,7 @@
         <span>AI介入：${payload.ai_count || 0}${payload.ai_model ? " · " + payload.ai_model : ""}</span>
         <span>采集提示：${payload.errors.length}</span>
       `;
-      grid.innerHTML = rows.length ? rows.map(card).join("") : `<div class="empty">没有匹配结果。点击“刷新数据”采集最新热点。</div>`;
+      grid.innerHTML = rows.length ? rows.map(card).join("") : `<div class="empty">没有匹配结果。先运行 <code>python hotspot_radar.py</code> 生成数据。</div>`;
     }
 
     function card(item) {
@@ -263,7 +263,6 @@
           <div class="chips">
             <span class="chip level">${item.suggestion_level}</span>
             ${item.ai_powered ? `<span class="chip level">AI</span>` : ""}
-            ${item.ai_fit_score ? `<span class="chip">适配 ${item.ai_fit_score}</span>` : ""}
             <span class="chip ${riskClass}">风险 ${item.risk_level}</span>
             ${item.platforms.map(p => `<span class="chip">${p}</span>`).join("")}
           </div>
@@ -272,7 +271,6 @@
             <button data-action="enhance" data-index="${index}">${item.ai_enriched ? "重新生成选题" : "智能选题"}</button>
           </div>
           ${smartSummary ? `<div><div class="section-title">智能总结</div><div>${escapeHtml(smartSummary)}</div>${webSources ? `<div>${webSources}</div>` : ""}</div>` : ""}
-          ${item.ai_brief ? `<div><div class="section-title">AI判断</div><div>${escapeHtml(item.ai_brief)}</div></div>` : ""}
           <div>
             <div class="section-title">热点链接</div>
             <div>${sourceLinks}</div>
@@ -307,7 +305,7 @@
     });
     loadData().catch(() => {
       meta.innerHTML = "";
-      grid.innerHTML = `<div class="empty">还没有数据。部署完成后点击“刷新数据”采集公开热榜。</div>`;
+      grid.innerHTML = `<div class="empty">还没有数据。先运行 <code>python hotspot_radar.py --offline</code> 测试，或运行 <code>python hotspot_radar.py</code> 采集公开热榜。</div>`;
     });
   </script>
 </body>
