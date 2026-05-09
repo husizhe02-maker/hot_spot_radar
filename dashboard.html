@@ -53,6 +53,7 @@
       cursor: pointer;
       font-weight: 600;
     }
+    button:disabled { cursor: wait; opacity: 0.72; }
     main { padding: 22px 28px 40px; }
     .meta {
       display: flex;
@@ -171,6 +172,58 @@
       render();
     }
 
+    async function refreshHotspots() {
+      if (window.location.protocol === "file:") {
+        alert("当前是 file:// 本地文件页面，不能真正调用后端刷新。请打开 Render 链接或本地后端链接后再刷新。");
+        return;
+      }
+      const button = document.getElementById("refresh");
+      const oldText = button.textContent;
+      button.disabled = true;
+      button.textContent = "刷新中...";
+      try {
+        const res = await fetch("./api/refresh", { method: "POST" });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(result.error || result.stderr || result.stdout || "当前页面没有可运行 Python 的后端服务");
+        }
+        await loadData();
+      } catch (err) {
+        await loadData().catch(() => {});
+        alert("刷新失败：\n" + err.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = oldText;
+      }
+    }
+
+    async function runCardAction(index, action, button) {
+      if (window.location.protocol === "file:") {
+        alert("当前是 file:// 本地文件页面，不能调用后端。请打开 Render 链接或本地后端链接。");
+        return;
+      }
+      const oldText = button.textContent;
+      button.disabled = true;
+      button.textContent = action === "summarize" ? "总结中..." : "生成中...";
+      try {
+        const res = await fetch(`./api/${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ index })
+        });
+        const result = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(result.error || result.stderr || result.stdout || "AI 请求失败");
+        }
+        await loadData();
+      } catch (err) {
+        alert("操作失败：\n" + err.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = oldText;
+      }
+    }
+
     function render() {
       const query = q.value.trim().toLowerCase();
       const rows = (payload?.clusters || []).filter(item => {
@@ -183,17 +236,23 @@
         <span>生成时间：${payload.generated_at}</span>
         <span>原始热点：${payload.raw_count}</span>
         <span>合并热点：${payload.cluster_count}</span>
-        <span>AI增强：${payload.ai_count || 0}${payload.ai_model ? " · " + payload.ai_model : ""}</span>
+        <span>AI介入：${payload.ai_count || 0}${payload.ai_model ? " · " + payload.ai_model : ""}</span>
         <span>采集提示：${payload.errors.length}</span>
       `;
-      grid.innerHTML = rows.length ? rows.map(card).join("") : `<div class="empty">没有匹配结果。先运行 <code>python hotspot_radar.py</code> 生成数据。</div>`;
+      grid.innerHTML = rows.length ? rows.map(card).join("") : `<div class="empty">没有匹配结果。点击“刷新数据”采集最新热点。</div>`;
     }
 
     function card(item) {
+      const index = payload.clusters.indexOf(item);
       const riskClass = item.risk_level === "高" ? "risk-high" : item.risk_level === "中" ? "risk-mid" : "";
       const sourceLinks = item.source_items.slice(0, 4).map(src => {
         const label = `${src.platform} #${src.rank}`;
         return src.url ? `<a href="${src.url}" target="_blank" rel="noreferrer">${label}</a>` : label;
+      }).join(" · ");
+      const smartSummary = item.ai_web_summary;
+      const webSources = (item.ai_web_sources || []).slice(0, 3).map((src, idx) => {
+        const label = src.title || `来源 ${idx + 1}`;
+        return src.url ? `<a href="${src.url}" target="_blank" rel="noreferrer">${escapeHtml(label)}</a>` : escapeHtml(label);
       }).join(" · ");
       return `
         <article class="card">
@@ -204,23 +263,31 @@
           <div class="chips">
             <span class="chip level">${item.suggestion_level}</span>
             ${item.ai_powered ? `<span class="chip level">AI</span>` : ""}
+            ${item.ai_fit_score ? `<span class="chip">适配 ${item.ai_fit_score}</span>` : ""}
             <span class="chip ${riskClass}">风险 ${item.risk_level}</span>
             ${item.platforms.map(p => `<span class="chip">${p}</span>`).join("")}
           </div>
+          <div class="chips">
+            <button data-action="summarize" data-index="${index}">${smartSummary ? "重新总结" : "智能总结"}</button>
+            <button data-action="enhance" data-index="${index}">${item.ai_enriched ? "重新生成选题" : "智能选题"}</button>
+          </div>
+          ${smartSummary ? `<div><div class="section-title">智能总结</div><div>${escapeHtml(smartSummary)}</div>${webSources ? `<div>${webSources}</div>` : ""}</div>` : ""}
           ${item.ai_brief ? `<div><div class="section-title">AI判断</div><div>${escapeHtml(item.ai_brief)}</div></div>` : ""}
           <div>
-            <div class="section-title">来源</div>
+            <div class="section-title">热点链接</div>
             <div>${sourceLinks}</div>
           </div>
-          <div>
-            <div class="section-title">选题角度</div>
-            <ul>${item.topic_angles.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
-          </div>
-          <div>
-            <div class="section-title">标题模板</div>
-            <ul>${item.title_templates.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
-          </div>
-          <div class="chips">${item.tags.map(t => `<span class="chip">${escapeHtml(t)}</span>`).join("")}</div>
+          ${item.ai_enriched ? `
+            <div>
+              <div class="section-title">选题角度</div>
+              <ul>${item.topic_angles.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
+            </div>
+            <div>
+              <div class="section-title">标题模板</div>
+              <ul>${item.title_templates.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>
+            </div>
+          ` : ""}
+          ${item.ai_enriched ? `<div class="chips">${item.tags.map(t => `<span class="chip">${escapeHtml(t)}</span>`).join("")}</div>` : ""}
         </article>
       `;
     }
@@ -232,10 +299,15 @@
     q.addEventListener("input", render);
     level.addEventListener("change", render);
     risk.addEventListener("change", render);
-    document.getElementById("refresh").addEventListener("click", loadData);
+    document.getElementById("refresh").addEventListener("click", refreshHotspots);
+    grid.addEventListener("click", event => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      runCardAction(Number(button.dataset.index), button.dataset.action, button);
+    });
     loadData().catch(() => {
       meta.innerHTML = "";
-      grid.innerHTML = `<div class="empty">还没有数据。请先在 GitHub Actions 里运行 <code>Deploy hotspot radar</code> 工作流。</div>`;
+      grid.innerHTML = `<div class="empty">还没有数据。部署完成后点击“刷新数据”采集公开热榜。</div>`;
     });
   </script>
 </body>
