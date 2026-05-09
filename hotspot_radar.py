@@ -29,11 +29,7 @@ HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
-ENTERTAINMENT_WORDS = {
-    "新剧", "剧集", "电视剧", "短剧", "剧情", "电影", "综艺", "演员", "明星", "导演", "票房", "上映", "开播",
-    "大结局", "预告", "官宣", "红毯", "演唱会", "音乐", "舞台", "韩剧", "美剧", "港剧", "爱奇艺",
-    "腾讯视频", "优酷", "芒果", "Netflix", "CP", "吻戏", "名场面", "角色", "男主", "女主", "番外", "热播", "杀青",
-}
+ENTERTAINMENT_WORDS = {"新剧", "剧集", "电视剧", "短剧", "剧情", "电影", "综艺", "演员", "明星", "导演", "票房", "上映", "开播", "大结局", "预告", "官宣", "红毯", "演唱会", "音乐", "舞台", "韩剧", "美剧", "港剧", "爱奇艺", "腾讯视频", "优酷", "芒果", "Netflix", "CP", "吻戏", "名场面", "角色", "男主", "女主", "番外", "热播", "杀青"}
 RISK_WORDS = {"去世", "自杀", "违法", "犯罪", "诈骗", "造谣", "辟谣", "封杀", "涉毒", "出轨", "辱华", "战争", "暴力", "未成年", "网暴", "抵制", "维权", "事故", "死亡"}
 
 @dataclass
@@ -112,9 +108,8 @@ def risk_level(keyword: str) -> str:
 
 def collect_weibo() -> list[HotItem]:
     data = json.loads(fetch_text("https://weibo.com/ajax/side/hotSearch"))
-    rows = data.get("data", {}).get("realtime", [])
     items = []
-    for idx, row in enumerate(rows, 1):
+    for idx, row in enumerate(data.get("data", {}).get("realtime", []), 1):
         keyword = clean_text(row.get("word") or row.get("note") or "")
         if keyword:
             items.append(HotItem("微博", idx, keyword, safe_int(row.get("num")), "https://s.weibo.com/weibo?q=" + urllib.parse.quote(keyword), now_text()))
@@ -140,7 +135,7 @@ def collect_bilibili() -> list[HotItem]:
             items.append(HotItem("B站", idx, keyword, safe_int(row.get("stat", {}).get("view")), "https://www.bilibili.com/video/" + str(row.get("bvid", "")), now_text()))
     return items
 
-def collect_douyin() -> list[HotItem]:
+def collect_douyin_direct() -> list[HotItem]:
     url = "https://www.douyin.com/aweme/v1/web/hot/search/list/?device_platform=webapp&aid=6383&channel=channel_pc_web"
     data = json.loads(fetch_text(url))
     rows = data.get("data", {}).get("word_list", []) or data.get("word_list", [])
@@ -150,6 +145,46 @@ def collect_douyin() -> list[HotItem]:
         if keyword:
             items.append(HotItem("抖音", idx, keyword, safe_int(row.get("hot_value")), "https://www.douyin.com/search/" + urllib.parse.quote(keyword), now_text()))
     return items
+
+def collect_douyin_from_redianbang() -> list[HotItem]:
+    text = fetch_text("https://www.redianbang.com/")
+    marker = re.search(r"(?:###|<h[23][^>]*>)\s*抖音", text, re.I) or re.search(r"抖音.{0,200}?热度", text, re.S)
+    if not marker:
+        return []
+    section = text[marker.start(): marker.start() + 6000]
+    section = re.split(r"(?:###|<h[23][^>]*>)\s*(?:微博|百度|知乎|B站|头条|小红书|快手)", section, maxsplit=1)[0]
+    pattern = re.compile(r"(?:^|\n|\r)\s*(\d{1,2})\s*\n\s*([^\n\r<]{2,80})\s*\n\s*热度[:：]\s*([0-9.]+)\s*万?", re.S)
+    items = []
+    for rank_text, keyword, heat_text in pattern.findall(section):
+        keyword = clean_text(keyword)
+        if keyword:
+            items.append(HotItem("抖音", safe_int(rank_text), keyword, int(float(heat_text) * 10000), "https://www.douyin.com/search/" + urllib.parse.quote(keyword), now_text(), "redianbang"))
+    return items[:50]
+
+def collect_douyin_from_hotflashnews() -> list[HotItem]:
+    text = fetch_text("https://hotflashnews.com/")
+    rows = re.findall(r"\[抖音\]\s*([^<\n\r]{2,80})", text)
+    items, seen = [], set()
+    for row in rows:
+        keyword = clean_text(row)
+        if keyword and keyword not in seen:
+            seen.add(keyword)
+            items.append(HotItem("抖音", len(items) + 1, keyword, 0, "https://www.douyin.com/search/" + urllib.parse.quote(keyword), now_text(), "hotflashnews"))
+        if len(items) >= 50:
+            break
+    return items
+
+def collect_douyin() -> list[HotItem]:
+    errors = []
+    for collector in (collect_douyin_direct, collect_douyin_from_redianbang, collect_douyin_from_hotflashnews):
+        try:
+            rows = collector()
+            if rows:
+                return rows
+            errors.append(f"{collector.__name__}: no rows")
+        except Exception as exc:
+            errors.append(f"{collector.__name__}: {type(exc).__name__}: {exc}")
+    raise RuntimeError("; ".join(errors))
 
 def collect_xiaohongshu() -> list[HotItem]:
     text = fetch_text("https://www.xiaohongshu.com/explore")
@@ -196,7 +231,7 @@ def collect_all(offline: bool = False) -> tuple[list[HotItem], list[str]]:
                 errors.append(f"{name}: no public rows parsed")
             items.extend(rows)
             time.sleep(1)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError, KeyError) as exc:
+        except Exception as exc:
             errors.append(f"{name}: {type(exc).__name__}: {exc}")
     items.extend(read_manual_csv())
     if not items:
@@ -220,28 +255,8 @@ def openai_json_request(prompt: str, model: str, timeout: int = 45) -> dict:
     if not api_key.startswith("sk-"):
         raise RuntimeError("OPENAI_API_KEY should start with sk-")
     api_key.encode("ascii")
-    schema = {
-        "type": "object",
-        "properties": {
-            "suggestion_level": {"type": "string", "enum": ["强烈跟进", "观察", "暂不跟进"]},
-            "risk_level": {"type": "string", "enum": ["低", "中", "高"]},
-            "ai_brief": {"type": "string"},
-            "ai_reason": {"type": "string"},
-            "topic_angles": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3},
-            "title_templates": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3},
-            "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 6},
-        },
-        "required": ["suggestion_level", "risk_level", "ai_brief", "ai_reason", "topic_angles", "title_templates", "tags"],
-        "additionalProperties": False,
-    }
-    body = {
-        "model": model,
-        "instructions": "你是影视娱乐账号矩阵的内容策略助手。只输出 JSON，帮助运营判断热点是否值得做短视频选题。",
-        "input": [{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
-        "text": {"format": {"type": "json_schema", "name": "hotspot_enrichment", "schema": schema, "strict": True}, "verbosity": "low"},
-        "reasoning": {"effort": "minimal"},
-        "max_output_tokens": 1200,
-    }
+    schema = {"type": "object", "properties": {"suggestion_level": {"type": "string", "enum": ["强烈跟进", "观察", "暂不跟进"]}, "risk_level": {"type": "string", "enum": ["低", "中", "高"]}, "ai_brief": {"type": "string"}, "ai_reason": {"type": "string"}, "topic_angles": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3}, "title_templates": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 3}, "tags": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 6}}, "required": ["suggestion_level", "risk_level", "ai_brief", "ai_reason", "topic_angles", "title_templates", "tags"], "additionalProperties": False}
+    body = {"model": model, "instructions": "你是影视娱乐账号矩阵的内容策略助手。只输出 JSON，帮助运营判断热点是否值得做短视频选题。", "input": [{"role": "user", "content": [{"type": "input_text", "text": prompt}]}], "text": {"format": {"type": "json_schema", "name": "hotspot_enrichment", "schema": schema, "strict": True}, "verbosity": "low"}, "reasoning": {"effort": "minimal"}, "max_output_tokens": 1200}
     req = urllib.request.Request("https://api.openai.com/v1/responses", data=json.dumps(body, ensure_ascii=False).encode("utf-8"), headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
