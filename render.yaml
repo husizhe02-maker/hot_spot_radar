@@ -12,4 +12,10 @@ services:
       - key: AI_LIMIT
         value: "3"
       - key: OPENAI_MODEL
-        value: gpt-5-nano
+        value: gpt-5-mini
+      - key: OPENAI_WEB_MODEL
+        value: gpt-5.5
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TIKHUB_API_KEY
+        sync: false
