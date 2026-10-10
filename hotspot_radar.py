@@ -73,7 +73,8 @@ class Cluster:
 
 
 def now_text() -> str:
-    return dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timezone = dt.timezone(dt.timedelta(hours=8))
+    return dt.datetime.now(timezone).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def load_local_env() -> None:
@@ -516,7 +517,7 @@ def update_one_cluster(index: int, updater: Callable[[dict], None]) -> dict:
     if index < 0 or index >= len(clusters):
         raise RuntimeError(f"cluster index out of range: {index}")
     updater(clusters[index])
-    payload["generated_at"] = now_text()
+    payload["ai_updated_at"] = now_text()
     payload["ai_count"] = sum(1 for cluster in clusters if cluster.get("ai_powered"))
     JSON_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return clusters[index]
@@ -526,6 +527,7 @@ def write_outputs(items: list[HotItem], clusters: list[Cluster], errors: list[st
     OUTPUT_DIR.mkdir(exist_ok=True)
     payload = {
         "generated_at": now_text(),
+        "generated_timezone": "UTC+08:00",
         "raw_count": len(items),
         "cluster_count": len(clusters),
         "errors": errors,
