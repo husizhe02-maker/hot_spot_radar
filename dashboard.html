@@ -233,7 +233,7 @@
           && (!risk.value || item.risk_level === risk.value);
       });
       meta.innerHTML = `
-        <span>生成时间：${payload.generated_at}</span>
+        <span>热点刷新时间${payload.generated_timezone === "UTC+08:00" ? "（北京时间）" : ""}：${escapeHtml(payload.generated_at)}</span>
         <span>原始热点：${payload.raw_count}</span>
         <span>合并热点：${payload.cluster_count}</span>
         <span>AI介入：${payload.ai_count || 0}${payload.ai_model ? " · " + payload.ai_model : ""}</span>
